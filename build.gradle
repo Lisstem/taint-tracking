@@ -1,0 +1,93 @@
+plugins {
+    id 'com.github.johnrengelman.shadow' version '8.0.0'
+    id "me.champeau.jmh" version "0.7.2"
+    id 'java'
+    id 'idea'
+}
+
+apply plugin: 'idea'
+
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+// Configure Auto Relocation
+import com.github.jengelman.gradle.plugins.shadow.tasks.ConfigureShadowRelocation
+
+
+group 'net.lisstem'
+version '0.1-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.jetbrains:annotations:23.0.0'
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.1'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
+
+    implementation 'org.ow2.asm:asm:9.2'
+    implementation 'org.ow2.asm:asm-commons:9.2'
+    implementation 'org.ow2.asm:asm-analysis:9.2'
+    implementation 'org.ow2.asm:asm-util:9.2'
+
+    jmh 'org.ow2.asm:asm:9.2'
+    jmh 'org.ow2.asm:asm-commons:9.2'
+    jmh 'org.ow2.asm:asm-analysis:9.2'
+    jmh 'org.ow2.asm:asm-util:9.2'
+}
+
+apply plugin: 'java'
+compileJava {options.encoding = "UTF-8"}
+compileTestJava {options.encoding = "UTF-8"}
+
+
+test {
+    useJUnitPlatform()
+}
+
+if (project.hasProperty("args")) {
+    ext.cmdargs = project.getProperty("args")
+} else {
+    ext.cmdargs = ""
+}
+
+shadowJar {
+    mergeServiceFiles()
+    doFirst {
+        manifest {
+            attributes(
+                    // 'Class-Path': configurations.compile.collect{it.toURI().toString()}.join(' '),
+                    // 'Main-Class': 'Main',
+                    'Agent-Class': 'net.lisstem.taint.agent.Agent',
+                    'Can-Redefine-Classes': false,
+                    'Can-Retransform-Classes': false,
+                    'Premain-Class': 'net.lisstem.taint.agent.Agent'
+            )
+        }
+    }
+
+    // This makes sure that the generated jar has no "-all" suffix
+    archiveClassifier.set('')
+}
+
+jmhRunBytecodeGenerator {
+    dependsOn shadowJar
+}
+
+jmh {
+    includes = ['BenchmarksLarge'/*'TaintBenchmark'/*, 'BenchmarksSmall'*/]
+    jvmArgsAppend = ["-javaagent:${projectDir}/build/libs/java-0.1-SNAPSHOT.jar=${cmdargs}"] as Iterable<? extends String>
+    jmhTimeout = '120s' // Timeout for benchmark iteration.
+    verbosity = 'NORMAL' // Verbosity mode. Available modes are: [SILENT, NORMAL, EXTRA]
+    // humanOutputFile = project.file("${projectDir}/build/reports/jmh/human.txt") // human-readable output file
+    resultsFile = project.file("${projectDir}/build/reports/jmh/results.txt") // results file
+    failOnError = true
+    threads = 1 // Number of worker threads to run with.
+}
+
+task TaintExamples(type: JavaExec) {
+    group = "Execution"
+    description = "Taint all examples"
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'net.lisstem.taint.test.TaintExamples'
+    args cmdargs.split()
+}
